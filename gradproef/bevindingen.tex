@@ -1,0 +1,113 @@
+%%=============================================================================
+%% Bevindingen
+%%=============================================================================
+
+\chapter{Bevindingen}%
+\label{ch:bevindingen}
+
+Dit hoofdstuk beantwoordt de vier deelvragen uit de inleiding op basis van de resultaten van de proof of concept.
+
+\section{Deelvraag 1: Tracing via de OpenTelemetry-plugin}%
+\label{sec:bevinding-tracing}
+
+De \texttt{opentelemetry} plugin van APISIX werkt in de praktijk voor het exporteren van traces naar een OTEL Collector. Per request genereert APISIX één root-span met de volgende attributen:
+
+\begin{itemize}
+  \item \texttt{http.method}, \texttt{http.target}, \texttt{http.status\_code}
+  \item \texttt{service.name} (configureerbaar via \texttt{plugin\_metadata})
+  \item \texttt{apisix.route\_id}, \texttt{apisix.service\_id} (via \texttt{additional\_attributes})
+  \item \texttt{consumer}: de naam van de geauthenticeerde consumer
+\end{itemize}
+
+De plugin injecteert een W3C-conforme \texttt{Traceparent}-header in elke upstream-request. De mock-services extraheren de \texttt{trace\_id} uit deze header en nemen die op in hun gestructureerde logs. Hierdoor is kruisverwijs tussen logs (Loki) en traces (Tempo) mogelijk: een klik op een \texttt{trace\_id}-waarde in het Grafana-logdashboard opent de bijbehorende trace in Tempo.
+
+De latentie-uitsplitsing is niet te vinden in de span-attributen maar wel in de Prometheus-metrics (zie Sectie~\ref{sec:bevinding-metrics}). De trace toont de totale duur van de gateway-span, inclusief upstream-wachttijd, maar maakt geen intern onderscheid tussen plugin-uitvoeringstijd en upstream-responstijd.
+
+\textbf{Antwoord op deelvraag 1:} De OpenTelemetry-plugin werkt correct voor trace-export. De traces bevatten consumer- en route-context en ondersteunen W3C-propagatie naar upstream-services.
+
+\section{Deelvraag 2: Metrics en de OTLP-vraag}%
+\label{sec:bevinding-metrics}
+
+Een expliciete onderzoeksvraag uit het voorstel was of APISIX metrics kan exporteren via OpenTelemetry. Het antwoord is \textbf{nee}: de \texttt{opentelemetry} plugin ondersteunt enkel traces. Metrics en logs via OTLP zijn niet geïmplementeerd in APISIX~\autocite{APISIXOTelPlugin2024}. Dit staat nergens expliciet in de documentatie vermeld; het werd vastgesteld door de plugin-configuratie te bestuderen en de broncode te raadplegen.
+
+Het alternatief is de \texttt{prometheus} plugin, die een Prometheus-scrapeëindpunt beschikbaar stelt op poort 9091. De OTEL Collector scrapt dit eindpunt via zijn \texttt{prometheus} receiver en stuurt de data door naar Thanos. Functioneel is dit equivalent aan een native OTLP-push, met als voordeel dat de \texttt{prometheusremotewrite} exporter precies het formaat spreekt dat Thanos Receive verwacht.
+
+De meest waardevolle metrics zijn:
+
+\begin{itemize}
+  \item \texttt{apisix\_http\_requests\_total\{consumer, route, status\}}: absolute requesttelling, splitsbaar per consumer en route.
+  \item \texttt{apisix\_http\_latency\_bucket\{type, route, consumer\}}: latentie-histogram met drie \texttt{type}-waarden:
+    \begin{itemize}
+      \item \texttt{type="request"}: end-to-end latentie (totaal).
+      \item \texttt{type="apisix"}: gateway-overhead (plugin-uitvoering, auth-checks).
+      \item \texttt{type="upstream"}: responstijd van de achterliggende service.
+    \end{itemize}
+  \item \texttt{apisix\_bandwidth\{type, route, consumer\}}: bandbreedtegebruik per richting.
+  \item \texttt{apisix\_upstream\_status\{name, ip, port\}}: gezondheid van upstream-nodes.
+\end{itemize}
+
+De uitsplitsing via \texttt{type} maakt diagnose van performantieproblemen mogelijk: een stijging van \texttt{type="apisix"} met een vlakke \texttt{type="upstream"} wijst op gateway-zijdige vertraging (trage plugin, forward-auth-latentie); het omgekeerde wijst op een backend-probleem.
+
+\textbf{Aandachtspunt cardinaliteit:} de \texttt{consumer}- en \texttt{route}-labels verhogen de cardinaliteit van tijdreeksen. In productieomgevingen met veel consumers of dynamisch gegenereerde route-ID's wordt aanbevolen \texttt{prefer\_name: true} in te stellen in de Prometheus-plugin, zodat stabiele namen worden gebruikt in plaats van automatisch gegenereerde ID's die resetten bij herstart~\autocite{APISIX2024}.
+
+\textbf{Antwoord op deelvraag 2:} APISIX ondersteunt geen OTLP-metrics. De \texttt{prometheus} plugin gecombineerd met de OTEL Collector is het correcte alternatief en levert volwaardige, consumer-attributed metrics met latentie-uitsplitsing.
+
+\section{Deelvraag 3: Evaluatie van de ``Observe Your API''-tutorial}%
+\label{sec:bevinding-tutorial}
+
+De officiële tutorial~\autocite{APISIXObserveTutorial2024} demonstreert alle drie pijlers maar wijkt op meerdere punten af van een productie-architectuur:
+
+\begin{itemize}
+  \item \textbf{Traces}: de tutorial gebruikt de \texttt{zipkin} plugin in plaats van de \texttt{opentelemetry} plugin. Zipkin is een legacy traceringsprotocol; voor een OTEL-first stack verdient de \texttt{opentelemetry} plugin de voorkeur omdat de OTEL Collector intern normaliseert naar OTLP en naar elke backend kan routeren (Tempo, Jaeger, Zipkin).
+  \item \textbf{Metrics}: de Prometheus-plugin en zijn configuratie zijn identiek aan wat in dit POC gebruikt wordt. Het enige verschil is de scrape-bestemming: standalone Prometheus in de tutorial versus OTEL Collector in dit POC. Het officiële Grafana-dashboard (ID 11719) werkt tegen beide.
+  \item \textbf{Logs}: de tutorial gebruikt de \texttt{http-logger} plugin met Mockbin als sink. Dit is enkel geschikt voor demonstratiedoeleinden. In productie is log-collectie via een agent (Alloy) die de stdout van containers leest robuuster en vereist geen APISIX-plugin-configuratie per route.
+  \item \textbf{Opslag}: de tutorial heeft geen langetermijn-opslag. Zonder Thanos of een gelijkaardig systeem zijn metrics enkel beschikbaar voor de retentieperiode van de lokale Prometheus-instantie (standaard 15 dagen).
+\end{itemize}
+
+\textbf{Herbruikbare onderdelen:} de \texttt{prometheus} plugin-configuratie is direct overdraagbaar. De consumer-configuratie en route-definities zijn platform-onafhankelijk.
+
+\textbf{Antwoord op deelvraag 3:} De tutorial is bruikbaar als startpunt voor de metrics-pijler. Voor traces en logs biedt de in dit POC uitgewerkte architectuur meer productiewaarde.
+
+\section{Deelvraag 4: Grafana-dashboards}%
+\label{sec:bevinding-dashboards}
+
+De zes geïmplementeerde dashboards bieden de volgende operationele inzichten:
+
+\begin{itemize}
+  \item \textbf{Gateway Health} en \textbf{SLA \& Errors} zijn het meest relevant voor SLA-bewaking: P99-latentie per route, foutpercentage over tijd en SLO-compliance zijn in één oogopslag zichtbaar.
+  \item \textbf{Consumer Usage} is het meest onderscheidend ten opzichte van de tutorial: het toont per consumer het verkeersvolume, de foutfrequentie en het bandbreedtegebruik, zonder dat daarvoor aparte queries geschreven moeten worden.
+  \item \textbf{Service Logs} koppelt het log-dashboard aan Tempo via de Grafana \textit{derived fields}-configuratie op het \texttt{trace\_id}-veld. Dit maakt cross-pijler navigatie mogelijk zonder handmatig kopiëren van ID's.
+\end{itemize}
+
+\section{Configuratievalkuilen}%
+\label{sec:bevinding-gotchas}
+
+Tijdens de implementatie werden zeven niet-gedocumenteerde of onvoldoende gedocumenteerde configuratievalkuilen vastgesteld. Ze worden hier vermeld als praktische referentie voor teams die een gelijkaardige integratie uitvoeren.
+
+\begin{enumerate}
+  \item \textbf{\texttt{status}-veld op upstreams in standalone-modus:} het opnemen van het \texttt{status}-veld bij een upstream-definitie in \texttt{apisix.yaml} veroorzaakt een parse-fout bij het laden van de configuratie. Het veld moet weggelaten worden in standalone-modus.
+
+  \item \textbf{Case-sensitivity van de consumer-restriction allowlist:} de waarden in de \texttt{whitelist} van de \texttt{consumer-restriction} plugin zijn exact-match en hoofdlettergevoelig. Een consumer genaamd \texttt{Flitsmeister\_Client} wordt niet gematcht door \texttt{flitsmeister\_client}.
+
+  \item \textbf{\texttt{plugin\_metadata} voor OpenTelemetry moet globaal geconfigureerd worden:} de \texttt{plugin\_metadata} sectie voor de \texttt{opentelemetry} plugin (met de collector-URL en \texttt{resource}-attribuut) werkt enkel als globale instelling in \texttt{config.yaml}. Per-route configuratie van \texttt{plugin\_metadata} heeft geen effect.
+
+  \item \textbf{Grafana datasource-UID's moeten exact overeenkomen:} bij JSON-provisioning van dashboards moeten de \texttt{datasource.uid}-waarden in de dashboard-JSON exact overeenkomen met de UID's in de datasource-provisioningbestanden. Een mismatch resulteert in stille ``No data''-panelen zonder foutmelding.
+
+  \item \textbf{Prometheus template-variabelen: \texttt{\$\_\_rate\_interval} versus \texttt{\$\_\_interval}:} in Grafana-dashboards die rate-functies gebruiken (\texttt{rate()}, \texttt{increase()}) moet \texttt{\$\_\_rate\_interval} gebruikt worden in plaats van \texttt{\$\_\_interval}. \texttt{\$\_\_rate\_interval} houdt rekening met de scrapeduur en geeft correcte resultaten bij wisselende tijdvensters.
+
+  \item \textbf{Loki vereist expliciete bestandssysteempermissies:} de Loki-container schrijft naar een lokale map voor opslag. Als de betreffende map eigendom is van de host-gebruiker in plaats van de Loki-container-gebruiker (UID 10001), weigert Loki te starten met een permissiefout. Oplossing: de map aanmaken met \texttt{chmod 777} of de eigenaar instellen op UID 10001.
+
+  \item \textbf{PromQL versus LogQL --- syntactische fouten zijn runtime-errors:} PromQL en LogQL lijken op elkaar maar hebben subtiele syntaxisverschillen. Een LogQL-expressie die per vergissing PromQL-syntax gebruikt (bv. een label-matcher zonder streamkwalificatie) geeft geen compilatiefout maar een runtime-fout op het moment dat de query uitgevoerd wordt. Dit maakt debuggen tijdrovend.
+\end{enumerate}
+
+\section{Productiegaten}%
+\label{sec:bevinding-productiegaten}
+
+De POC valideert de architectuur maar is niet productie-ready. De voornaamste tekortkomingen zijn:
+
+\begin{itemize}
+  \item \textbf{Sampling:} de OpenTelemetry-plugin is geconfigureerd met \texttt{sampler: always\_on}, wat betekent dat 100\% van alle requests getraceerd wordt. In productie met hoge verkeersvolumes is dit te duur voor opslag. Tail-sampling via de OTEL Collector of probabilistische sampling via \texttt{trace\_id\_ratio} is aanbevolen.
+  \item \textbf{Geen exemplars:} APISIX genereert geen Prometheus-exemplars (trace-ID-koppeling in histogrammen). Hierdoor is er geen directe koppeling van een Prometheus-latentie-outlier naar de bijbehorende trace.
+  \item \textbf{Enkel gateway-spans in Tempo:} de traces bevatten enkel één span per request (de gateway-span). Upstream-services genereren geen spans omdat ze geen OTel SDK gebruiken. Voor volledige distributed tracing zou elke service geïnstrumenteerd moeten worden.
+  \item \textbf{Security:} in de POC worden API-sleutels doorgegeven als query-parameter (\texttt{?apikey=...}), wat ze zichtbaar maakt in access logs. In productie horen credentials in headers. Tevens zijn de metrics- (\texttt{:9091}) en OTLP- (\texttt{:4318}) eindpunten zonder authenticatie op de host exposed.
+\end{itemize}

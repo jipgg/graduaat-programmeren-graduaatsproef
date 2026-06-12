@@ -1,0 +1,399 @@
+{
+  "__inputs": [
+    {
+      "name": "thanos",
+      "label": "Thanos",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "annotations": { "list": [] },
+  "description": "APISIX internals — shared memory usage, NGINX connection detail, per-upstream-node traffic, and collector health.",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "schemaVersion": 38,
+  "tags": ["apisix", "internals"],
+  "templating": {
+    "list": [
+      {
+        "name": "interval",
+        "label": "Rate interval",
+        "type": "interval",
+        "query": "1m,5m,15m",
+        "current": { "value": "5m", "text": "5m" },
+        "options": [
+          { "value": "1m",  "text": "1m",  "selected": false },
+          { "value": "5m",  "text": "5m",  "selected": true  },
+          { "value": "15m", "text": "15m", "selected": false }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "APISIX — Gateway Internals",
+  "uid": "apisix-gateway-internals",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Node Info",
+      "description": "APISIX node hostname and version from apisix_node_info labels.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_node_info",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "sortBy": [] },
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true, "Value": true } } }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Metric Collection Errors",
+      "description": "Rate of internal lua-prometheus errors. Should be zero.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum(rate(apisix_nginx_metric_errors_total[$interval]))",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.001 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Batch Processor Queue",
+      "description": "Entries buffered in batch plugins (http-logger, kafka-logger). Non-zero when batch plugins are active.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum(apisix_batch_process_entries)",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active Connections",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum(apisix_nginx_http_current_connections{state=\"active\"})",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "bargauge",
+      "title": "Shared Dict Utilization",
+      "description": "Percentage of each NGINX shared dictionary that is used. Dicts that fill up cause plugin state eviction (rate limiter counters, JWT blacklists).",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "1 - (apisix_shared_dict_free_space_bytes / apisix_shared_dict_capacity_bytes)",
+          "legendFormat": "{{shared_dict}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.9 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Shared Dict Capacity vs Free",
+      "description": "Raw capacity and free bytes per NGINX shared dictionary.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_shared_dict_capacity_bytes",
+          "legendFormat": "capacity",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_shared_dict_free_space_bytes",
+          "legendFormat": "free",
+          "refId": "B",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "decbytes" },
+        "overrides": []
+      },
+      "options": { "sortBy": [{ "displayName": "Value #A", "desc": true }] },
+      "transformations": [
+        { "id": "merge", "options": {} },
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true } } }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "NGINX Connection States",
+      "description": "active = being processed; waiting = keep-alive idle; reading = receiving request; writing = sending response.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_nginx_http_current_connections{state=\"active\"}",
+          "legendFormat": "active",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_nginx_http_current_connections{state=\"waiting\"}",
+          "legendFormat": "waiting (keep-alive idle)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_nginx_http_current_connections{state=\"reading\"}",
+          "legendFormat": "reading",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_nginx_http_current_connections{state=\"writing\"}",
+          "legendFormat": "writing",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "active" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "waiting (keep-alive idle)" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Request Rate by Upstream Node",
+      "description": "Requests/s broken down by the upstream node that handled them. Useful for detecting uneven load distribution.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum by (node) (rate(apisix_http_status_total[$interval]))",
+          "legendFormat": "{{node}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "P95 Upstream Latency by Node",
+      "description": "Per-upstream-node P95 latency. Divergence between nodes indicates a degraded instance.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "histogram_quantile(0.95, sum by (node, le) (rate(apisix_http_latency_bucket{type=\"upstream\"}[$interval])))",
+          "legendFormat": "{{node}} P95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Bandwidth by Upstream Node",
+      "description": "Ingress and egress bytes/s per upstream node.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum by (node, type) (rate(apisix_bandwidth_total[$interval]))",
+          "legendFormat": "{{node}} {{type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "binBps",
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Upstream Node Health",
+      "description": "Health check result per upstream node. 1 = healthy, 0 = unhealthy.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "apisix_upstream_status",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value" },
+            "properties": [
+              { "id": "displayName", "value": "Status" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "green", "value": 1 }
+                  ]
+                }
+              },
+              { "id": "custom.displayMode", "value": "color-background" },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "0": { "text": "unhealthy" }, "1": { "text": "healthy" } } }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true } } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,179 @@
+%%=============================================================================
+%% Proof of Concept — Opzet en Architectuur
+%%=============================================================================
+
+\chapter{Proof of Concept: Opzet en Architectuur}%
+\label{ch:poc}
+
+Dit hoofdstuk beschrijft de technische opzet van de proof of concept: de containeromgeving, de architectuurkeuzes en de configuratie van de voornaamste componenten. De bevindingen die uit deze opzet voortkwamen worden besproken in Hoofdstuk~\ref{ch:bevindingen}.
+
+\section{Overzicht van de omgeving}%
+\label{sec:poc-overzicht}
+
+De POC bestaat uit elf Docker-containers die met elkaar communiceren via een intern Docker-netwerk (\texttt{obs}). Tabel~\ref{tab:containers} geeft een overzicht.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Container} & \textbf{Rol} & \textbf{Beeld} \\
+    \midrule
+    \texttt{apisix} & API gateway & \texttt{apache/apisix:3.x} \\
+    \texttt{traffic-events-service} & Mock upstream & custom Go \\
+    \texttt{route-guidance-service} & Mock upstream & custom Go \\
+    \texttt{echo-service} & Request-inspectie & custom Go \\
+    \texttt{otel-collector} & Telemetrie-hub & \texttt{otel/opentelemetry-collector-contrib} \\
+    \texttt{thanos-receive} & Metrics-ingestie & \texttt{thanosio/thanos} \\
+    \texttt{thanos-query} & Metrics-query-laag & \texttt{thanosio/thanos} \\
+    \texttt{tempo} & Trace-opslag & \texttt{grafana/tempo} \\
+    \texttt{loki} & Log-opslag & \texttt{grafana/loki} \\
+    \texttt{alloy} & Log-collector & \texttt{grafana/alloy} \\
+    \texttt{grafana} & Visualisatie & \texttt{grafana/grafana} \\
+    \bottomrule
+  \end{tabular}
+  \caption[Overzicht van de elf containers in de POC.]{\label{tab:containers}Overzicht van de elf containers in de proof of concept.}
+\end{table}
+
+De volledige stack is te starten via \texttt{make up} en te vullen met testdata via \texttt{make seed}.
+
+\section{Datastroom per pijler}%
+\label{sec:poc-datastroom}
+
+\subsection{Metrics}
+
+De \texttt{prometheus} plugin van APISIX exporteert metrics op poort 9091. De OTEL Collector scrapt dit eindpunt via zijn \texttt{prometheus} receiver en stuurt de data door naar Thanos Receive via de \texttt{prometheusremotewrite} exporter. Grafana bevraagt Thanos Query als datasource.
+
+Codefragment~\ref{lst:otel-prometheus-receiver} toont de relevante OTEL Collector-configuratie.
+
+\begin{listing}
+  \begin{minted}{yaml}
+    receivers:
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: apisix
+              scrape_interval: 15s
+              static_configs:
+                - targets: ["apisix:9091"]
+
+    exporters:
+      prometheusremotewrite:
+        endpoint: "http://thanos-receive:19291/api/v1/receive"
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          processors: [batch]
+          exporters: [prometheusremotewrite]
+  \end{minted}
+  \caption[OTEL Collector: metrics-pipeline configuratie.]{OTEL Collector configuratie voor de metrics-pipeline: scrapen van APISIX en doorsturen naar Thanos.}
+  \label{lst:otel-prometheus-receiver}
+\end{listing}
+
+\subsection{Traces}
+
+De \texttt{opentelemetry} plugin van APISIX stuurt spans via OTLP/HTTP naar de OTEL Collector op poort 4318. De Collector geeft de traces door naar Tempo via OTLP/gRPC. Het is essentieel dat \texttt{plugin\_metadata} voor de OpenTelemetry-plugin globaal geconfigureerd wordt (zie Sectie~\ref{sec:bevinding-gotchas}).
+
+\begin{listing}
+  \begin{minted}{yaml}
+    receivers:
+      otlp:
+        protocols:
+          http:
+            endpoint: "0.0.0.0:4318"
+
+    exporters:
+      otlp:
+        endpoint: "tempo:4317"
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp]
+  \end{minted}
+  \caption[OTEL Collector: traces-pipeline configuratie.]{OTEL Collector configuratie voor de traces-pipeline: ontvangen van APISIX en doorsturen naar Tempo.}
+  \label{lst:otel-traces-pipeline}
+\end{listing}
+
+\subsection{Logs}
+
+De mock-upstream-services schrijven gestructureerde JSON-logs naar stdout via de zerolog-bibliotheek. Grafana Alloy ontdekt deze containers via de Docker-socket en leest hun stdout-streams. Een JSON-parsing stage extraheert de velden \texttt{level}, \texttt{trace\_id} en \texttt{correlation\_id} als Loki-labels. Alloy pusht de log-streams vervolgens naar Loki.
+
+\begin{listing}
+  \begin{minted}{hcl}
+    discovery.docker "containers" {
+      host = "unix:///var/run/docker.sock"
+    }
+
+    loki.source.docker "docker_logs" {
+      host       = "unix:///var/run/docker.sock"
+      targets    = discovery.docker.containers.targets
+      forward_to = [loki.process.parse_json.receiver]
+    }
+
+    loki.process "parse_json" {
+      stage.json {
+        expressions = { level = "level", trace_id = "trace_id" }
+      }
+      forward_to = [loki.write.loki.receiver]
+    }
+
+    loki.write "loki" {
+      endpoint {
+        url = "http://loki:3100/loki/api/v1/push"
+      }
+    }
+  \end{minted}
+  \caption[Grafana Alloy configuratie voor log-collectie.]{Vereenvoudigde Alloy-configuratie: Docker-discovery, JSON-parsing en doorsturen naar Loki.}
+  \label{lst:alloy-config}
+\end{listing}
+
+\section{Mock-upstream-services}%
+\label{sec:mock-services}
+
+De drie mock-services zijn eenvoudige Go HTTP-servers die realistisch gedrag simuleren voor testdoeleinden. Ze implementeren geen OTel SDK; alle tracing-context wordt uitsluitend via HTTP-headers gelezen.
+
+Elke service:
+\begin{itemize}
+  \item Leest de \texttt{Traceparent}-header (injecteerd door APISIX) en extraheert de \texttt{trace\_id}.
+  \item Leest de \texttt{X-Correlation-Id}-header (injecteerd door de \texttt{request-id} plugin van APISIX).
+  \item Logt bij elke request een JSON-object met \texttt{method}, \texttt{path}, \texttt{status}, \texttt{duration\_ms}, \texttt{trace\_id} en \texttt{correlation\_id}.
+  \item Simuleert variabele latentie via willekeurige vertraging (20--80~ms).
+\end{itemize}
+
+De \texttt{echo-service} heeft geen authenticatie en is bedoeld om de header-injectie van APISIX te verifiëren: het antwoord bevat een volledige weergave van alle ontvangen headers.
+
+\section{APISIX-configuratie}%
+\label{sec:apisix-config}
+
+APISIX wordt geconfigureerd in standalone-modus via twee YAML-bestanden: \texttt{config.yaml} voor statische instellingen (plugin-allowlist, poortconfiguratie, etcd uitgeschakeld) en \texttt{apisix.yaml} voor dynamische resources (routes, consumers, upstreams).
+
+Er zijn vier consumers geconfigureerd, die de externe API-partners van Be-Mobile simuleren:
+
+\begin{itemize}
+  \item \texttt{Flitsmeister\_Client}: toegang tot verkeersdata-routes.
+  \item \texttt{TomTom\_Integration}: toegang tot routeberekening.
+  \item \texttt{Internal\_Monitoring}: toegang tot alle routes, voor intern gebruik.
+  \item \texttt{TestClient\_Generic}: gebruikt voor smoke tests.
+\end{itemize}
+
+Elke consumer authenticeert via een API-sleutel in de \texttt{X-API-Key}-header. De \texttt{consumer-restriction} plugin beperkt per route welke consumers toegang hebben.
+
+\section{Grafana-dashboards}%
+\label{sec:dashboards}
+
+Er werden zes dashboards geïmplementeerd en via JSON-provisioning ingeladen:
+
+\begin{enumerate}
+  \item \textbf{Gateway Health}: request rate, error rate, latentie-percentielen (P50/P95/P99), actieve verbindingen, node-gezondheid.
+  \item \textbf{Consumer Usage}: verkeer en fouten uitgesplitst per consumer en per route.
+  \item \textbf{Route/Cluster}: herhalende rijen per route met individuele metrics.
+  \item \textbf{Service Logs}: log-stream zoekinterface per service en log-level, met klikbare \texttt{trace\_id}-links naar Tempo.
+  \item \textbf{Gateway Internals}: NGINX shared dictionary-gebruik, per-node distributie.
+  \item \textbf{SLA \& Errors}: SLO-compliance, foutanalyse per status en P99-latentie over tijd.
+\end{enumerate}

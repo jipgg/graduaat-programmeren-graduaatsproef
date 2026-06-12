@@ -1,51 +1,129 @@
 \chapter{\IfLanguageName{dutch}{Stand van zaken}{State of the art}}%
 \label{ch:stand-van-zaken}
 
-% Tip: Begin elk hoofdstuk met een paragraaf inleiding die beschrijft hoe
-% dit hoofdstuk past binnen het geheel van de graduaatsproef. Geef in het
-% bijzonder aan wat de link is met het vorige en volgende hoofdstuk.
+Dit hoofdstuk biedt de theoretische onderbouwing voor de keuzes in het proof of concept. Eerst wordt het concept van een API gateway toegelicht en worden de meest gebruikte open-source gateways vergeleken. Daarna wordt observability als vakdomein uitgelegd aan de hand van de drie pijlers: metrics, traces en logs. Vervolgens worden de componenten van het OpenTelemetry-ecosysteem besproken, gevolgd door de opslagcomponenten die in dit onderzoek gebruikt worden.
 
-% Pas na deze inleidende paragraaf komt de eerste sectiehoofding.
+\section{API gateways}%
+\label{sec:api-gateways}
 
-Dit hoofdstuk bevat je literatuurstudie. De inhoud gaat verder op de inleiding, maar zal het onderwerp van de graduaatsproef *diepgaand* uitspitten. De bedoeling is dat de lezer na lezing van dit hoofdstuk helemaal op de hoogte is van de huidige stand van zaken (state-of-the-art) in het onderzoeksdomein. Iemand die niet vertrouwd is met het onderwerp, weet nu voldoende om de rest van het verhaal te kunnen volgen, zonder dat die er nog andere informatie moet over opzoeken \autocite{Pollefliet2011}.
+Een API gateway is een reverse proxy die fungeert als enkel ingangspunt voor API-verkeer~\autocite{NginxAPIGateway2024}. Ze centraliseert cross-cutting concerns zoals authenticatie, rate limiting, request-transformatie en routering, zodat individuele backend-services deze logica niet zelf hoeven te implementeren. In een microservices-architectuur vermindert dit duplicatie en vereenvoudigt het beheer~\autocite{Richardson2018}.
 
-Je verwijst bij elke bewering die je doet, vakterm die je introduceert, enz.\ naar je bronnen. In \LaTeX{} kan dat met het commando \texttt{$\backslash${textcite\{\}}} of \texttt{$\backslash${autocite\{\}}}. Als argument van het commando geef je de ``sleutel'' van een ``record'' in een bibliografische databank in het Bib\LaTeX{}-formaat (een tekstbestand). Als je expliciet naar de auteur verwijst in de zin (narratieve referentie), gebruik je \texttt{$\backslash${}textcite\{\}}. Soms is de auteursnaam niet expliciet een onderdeel van de zin, dan gebruik je \texttt{$\backslash${}autocite\{\}} (referentie tussen haakjes). Dit gebruik je bv.~bij een citaat, of om in het bijschrift van een overgenomen afbeelding, broncode, tabel, enz. te verwijzen naar de bron. In de volgende paragraaf een voorbeeld van elk.
+\subsection{APISIX}
 
-\textcite{Knuth1998} schreef een van de standaardwerken over sorteer- en zoekalgoritmen. Experten zijn het erover eens dat cloud computing een interessante opportuniteit vormen, zowel voor gebruikers als voor dienstverleners op vlak van informatietechnologie~\autocite{Creeger2009}.
+APISIX is een open-source, dynamische API gateway gebouwd op OpenResty (NGINX + Lua)~\autocite{APISIX2024}. Het project valt onder de Apache Software Foundation en is actief in ontwikkeling. APISIX ondersteunt zowel een standalone configuratiemodus (YAML-bestanden, zonder externe afhankelijkheden) als een etcd-modus voor gedistribueerde deployments.
 
-Let er ook op: het \texttt{cite}-commando voor de punt, dus binnen de zin. Je verwijst meteen naar een bron in de eerste zin die erop gebaseerd is, dus niet pas op het einde van een paragraaf.
+Een centraal concept in APISIX is het \textit{consumer}: een entiteit die een API-sleutel of andere credential gebruikt om requests te authenticeren. Consumers worden apart geconfigureerd en kunnen worden beperkt tot specifieke routes via de \texttt{consumer-restriction} plugin. Het Prometheus-telemetrie-eindpunt van APISIX neemt de consumentnaam op als label in metrics, wat consumer attribution mogelijk maakt.
 
-\begin{figure}
+APISIX biedt een uitgebreid plugin-ecosysteem. De relevante plugins voor dit onderzoek zijn:
+
+\begin{itemize}
+  \item \texttt{prometheus}: exporteert HTTP-metrics op poort 9091, inclusief request counts, latentie-histogrammen met gateway/upstream-uitsplitsing, en bandbreedtemetingen.
+  \item \texttt{opentelemetry}: exporteert traces via OTLP/HTTP naar een configureerbare collector. Ondersteunt W3C Traceparent-propagatie naar upstream-services.
+  \item \texttt{consumer-restriction}: beperkt toegang tot routes op basis van consumentnaam.
+  \item \texttt{request-id}: injecteert een unieke correlatie-ID als request-header.
+  \item \texttt{proxy-rewrite}: past request-headers aan voor doorsturen naar de upstream.
+\end{itemize}
+
+\subsection{Vergelijking met andere open-source gateways}
+
+De meest gebruikte alternatieven voor APISIX zijn Kong, Traefik en Envoy~\autocite{NginxAPIGateway2024}.
+
+\textbf{Kong} is eveneens gebouwd op OpenResty en biedt een vergelijkbaar plugin-model. Consumer attribution via Prometheus-labels is beschikbaar via een plugin, maar is niet standaard ingebouwd. Kong vereist een relationele database (PostgreSQL) voor zijn configuratieopslag en ondersteunt geen standalone YAML-modus.
+
+\textbf{Traefik} is sterk gericht op automatische service-discovery in container-omgevingen (Docker, Kubernetes). Traefik biedt Prometheus-metrics maar zonder consumer-labels: alle requests worden geaggregeerd per route of service, zonder onderscheid per client. Latentie-uitsplitsing tussen gateway-overhead en upstream-responstijd is niet beschikbaar.
+
+\textbf{Envoy} is een laag-niveau proxy die als basis dient voor service meshes zoals Istio. Envoy genereert rijke telemetrie inclusief latentie-uitsplitsing, maar consumer attribution via labels is niet ingebouwd --- daarvoor is custom Lua-filter of een extern auth-systeem nodig. Envoy is aanzienlijk complexer te configureren dan APISIX of Traefik.
+
+Tabel~\ref{tab:gateway-vergelijking} vat de meest relevante observability-kenmerken samen.
+
+\begin{table}[h]
   \centering
-  \includegraphics[width=0.8\textwidth]{grail.jpg}
-  \caption[Voorbeeld figuur.]{\label{fig:grail}Voorbeeld van invoegen van een figuur. Zorg altijd voor een uitgebreid bijschrift dat de figuur volledig beschrijft zonder in de tekst te moeten gaan zoeken. Vergeet ook je bronvermelding niet!}
-\end{figure}
-
-\begin{listing}
-  \begin{minted}{python}
-    import pandas as pd
-    import seaborn as sns
-
-    penguins = sns.load_dataset('penguins')
-    sns.relplot(data=penguins, x="flipper_length_mm", y="bill_length_mm", hue="species")
-  \end{minted}
-  \caption[Voorbeeld codefragment]{Voorbeeld van het invoegen van een codefragment.}
-\end{listing}
-
-\lipsum[7-20]
-
-\begin{table}
-  \centering
-  \begin{tabular}{lcr}
+  \begin{tabular}{lcccc}
     \toprule
-    \textbf{Kolom 1} & \textbf{Kolom 2} & \textbf{Kolom 3} \\
-    $\alpha$         & $\beta$          & $\gamma$         \\
+    \textbf{Kenmerk} & \textbf{APISIX} & \textbf{Kong} & \textbf{Traefik} & \textbf{Envoy} \\
     \midrule
-    A                & 10.230           & a                \\
-    B                & 45.678           & b                \\
-    C                & 99.987           & c                \\
+    Consumer attribution in metrics & \checkmark & plugin & \texttimes & \texttimes \\
+    Latentie-uitsplitsing (gateway/upstream) & \checkmark & \texttimes & \texttimes & \checkmark \\
+    OpenTelemetry traces & \checkmark & \checkmark & beperkt & \checkmark \\
+    OTLP metrics & \texttimes & \texttimes & \texttimes & \checkmark \\
+    Standalone modus (geen externe DB) & \checkmark & \texttimes & \checkmark & \texttimes \\
     \bottomrule
   \end{tabular}
-  \caption[Voorbeeld tabel]{\label{tab:example}Voorbeeld van een tabel.}
+  \caption[Vergelijking observability-kenmerken van open-source API gateways.]{\label{tab:gateway-vergelijking}Vergelijking van observability-kenmerken voor de meest gebruikte open-source API gateways~\autocite{APISIX2024,NginxAPIGateway2024}.}
 \end{table}
 
+\section{Observability}%
+\label{sec:observability}
+
+Observability is het vermogen om de interne toestand van een systeem af te leiden uit zijn externe outputs~\autocite{Majors2022}. In de context van gedistribueerde systemen en microservices wordt observability doorgaans onderverdeeld in drie pijlers: metrics, traces en logs~\autocite{OpenTelemetry2024Signals}.
+
+\subsection{Metrics}
+
+Metrics zijn numerieke tijdreeksdata die de toestand of het gedrag van een systeem kwantificeren~\autocite{Prometheus2024DataModel}. Ze zijn efficiënt op te slaan en te bevragen, en lenen zich goed voor dashboards, alerting en trendanalyse. Typische metrieken voor een API gateway zijn: het aantal requests per seconde, de foutpercentage, en latentie-percentielen (P50, P95, P99).
+
+Het \textbf{Prometheus}-formaat is de industriestandaard voor metrics in cloud-native omgevingen~\autocite{Prometheus2024}. Prometheus scrapt periodiek een \texttt{/metrics}-eindpunt en slaat de data op als tijdreeksen. Labels (key-value-paren per tijdreeks) maken multidimensionale queries mogelijk: één metriek kan gefilterd worden op route, status, consumer, enzovoort.
+
+Een aandachtspunt bij labelgebruik is \textit{cardinaliteit}: het totaal aantal unieke tijdreeksen groeit multiplicatief met het aantal labelwaarden~\autocite{Prometheus2024BestPractices}. In een omgeving met duizenden consumenten of routes kan een naïeve labelkeuze leiden tot performantieproblemen in de opslag.
+
+\subsection{Traces}
+
+Gedistribueerde tracing maakt het mogelijk om de volledige weg van een request door meerdere services te volgen~\autocite{OpenTelemetry2024Traces}. Een \textit{trace} bestaat uit een boom van \textit{spans}: elk span vertegenwoordigt één operatie (bv. de gateway-verwerking, de upstream-aanroep, een databasequery). Spans bevatten tijdstempels, attributen en een foutindicator.
+
+De W3C Traceparent-specificatie definieert een gestandaardiseerde HTTP-header voor het doorgeven van trace-context tussen services~\autocite{W3CTraceContext2021}. Een gateway die Traceparent injecteert, stelt downstream-services in staat hun eigen spans aan de bestaande trace te koppelen, zonder dat ze de gateway kennen.
+
+\textbf{OpenTelemetry Protocol (OTLP)} is het door de OpenTelemetry-standaard gedefinieerde transportformaat voor telemetrie~\autocite{OpenTelemetry2024OTLP}. Het ondersteunt zowel gRPC als HTTP/protobuf en is backend-onafhankelijk.
+
+\subsection{Logs}
+
+Logs zijn tekstuele of gestructureerde gebeurtenisregistraties~\autocite{OpenTelemetry2024Logs}. \textit{Gestructureerde logs} --- waarbij elk log-record een JSON-object is met vaste velden zoals \texttt{level}, \texttt{timestamp}, \texttt{message} en aanvullende context --- zijn aanzienlijk eenvoudiger te aggregeren en te bevragen dan platte tekstregels.
+
+Door een \texttt{trace\_id} op te nemen in elk log-record kan een specifieke log-entry gekoppeld worden aan de bijbehorende trace. Dit is de basis van \textit{cross-pijler correlatie}: vanuit een log in Loki kan men direct navigeren naar de bijbehorende span in een trace-backend.
+
+\section{Het OpenTelemetry-ecosysteem}%
+\label{sec:opentelemetry}
+
+OpenTelemetry (OTel) is een open-source, vendor-neutraal observability-framework dat APIs, SDKs en tooling biedt voor het genereren, verzamelen en exporteren van metrics, traces en logs~\autocite{OpenTelemetry2024}. Het project wordt beheerd door de Cloud Native Computing Foundation (CNCF) en is de de-facto standaard geworden voor instrumentatie in cloud-native omgevingen.
+
+\subsection{OTEL Collector}
+
+De \textbf{OTEL Collector} is een agent die telemetrie ontvangt, verwerkt en doorstuurt~\autocite{OpenTelemetry2024Collector}. De Collector is opgebouwd uit drie typen componenten:
+
+\begin{itemize}
+  \item \textit{Receivers}: ontvangen telemetrie in verschillende formaten (OTLP, Prometheus-scrape, Jaeger, Zipkin, \ldots).
+  \item \textit{Processors}: transformeren of filteren telemetrie (bv. batch-aggregatie, attribuut-mapping).
+  \item \textit{Exporters}: sturen verwerkte telemetrie door naar een backend (Thanos, Tempo, Loki, \ldots).
+\end{itemize}
+
+De Collector fungeert als abstractielaag: de instrumentatie in de gateway hoeft enkel OTLP te spreken, terwijl de daadwerkelijke backends vervangen kunnen worden via Collector-configuratie zonder de gateway aan te raken. Dit is een architectuurvoordeel in omgevingen waar de observability-backend later kan wijzigen.
+
+\section{Opslagcomponenten}%
+\label{sec:opslagcomponenten}
+
+\subsection{Thanos}
+
+\textbf{Thanos} is een open-source uitbreiding op Prometheus die langetermijn-opslag en hoge beschikbaarheid toevoegt~\autocite{Thanos2024}. Thanos Receive accepteert Prometheus \texttt{remote\_write}-aanvragen en slaat de data op in object storage of op het lokale bestandssysteem. Thanos Query federateert queries over meerdere opslaginstanties. Voor de OTEL Collector is Thanos transparant: de \texttt{prometheusremotewrite}-exporter schrijft naar het Thanos Receive-eindpunt op dezelfde manier als naar een gewone Prometheus-instantie.
+
+\subsection{Grafana Tempo}
+
+\textbf{Tempo} is een open-source trace-backend van Grafana Labs~\autocite{Tempo2024}. Het accepteert traces in OTLP-formaat en is geoptimaliseerd voor goedkope opslag zonder indexering. Tempo integreert met Grafana voor trace-visualisatie en ondersteunt de TraceQL-querytaal voor het filteren van spans op attributen.
+
+\subsection{Grafana Loki}
+
+\textbf{Loki} is een open-source log-aggregatiesysteem van Grafana Labs~\autocite{Loki2024}. In tegenstelling tot Elasticsearch indexeert Loki enkel labels, niet de volledige loginhoud. Dit maakt het goedkoper in opslag en ingestie, ten koste van zoeksnelheid op vrije tekst. Loki gebruikt LogQL als query-taal, die syntactisch lijkt op PromQL maar voor log-streams bedoeld is.
+
+\subsection{Grafana Alloy}
+
+\textbf{Grafana Alloy} is de officiële opvolger van Promtail voor log-collectie en het doorsturen van telemetrie~\autocite{Alloy2024}. Grafana heeft Promtail in 2024 als deprecated bestempeld; Alloy neemt alle functionaliteit over en voegt ondersteuning toe voor metrics, traces en profielen naast logs. Alloy gebruikt een componentgebaseerde configuratietaal (River-formaat) waarbij elke stap in de verwerkingspipeline een benoemd en expliciet verbonden component is.
+
+\section{De officiële APISIX-tutorial ``Observe Your API''}%
+\label{sec:apisix-tutorial}
+
+De officiële APISIX-documentatie bevat een tutorial genaamd ``Observe Your API'' die de drie observability-pijlers demonstreert~\autocite{APISIXObserveTutorial2024}. De tutorial gebruikt:
+
+\begin{itemize}
+  \item De \texttt{http-logger} plugin voor logs, met Mockbin als sink (een HTTP-echo-dienst voor demonstratiedoeleinden).
+  \item De \texttt{prometheus} plugin voor metrics, gericht op een standalone Prometheus-instantie.
+  \item De \texttt{zipkin} plugin voor traces, gericht op een Zipkin-server op poort 9411.
+\end{itemize}
+
+De tutorial illustreert de basiswerking van elk observability-kanaal, maar sluit niet aan bij een OTEL-first architectuur. De Zipkin-plugin is een legacy traceringsformaat; voor moderne stacks met OTEL Collector verdient de \texttt{opentelemetry} plugin de voorkeur. De standalone Prometheus-instantie ontbeert langetermijn-retentie. De tutorial evalueert niet of de \texttt{opentelemetry} plugin ook metrics ondersteunt --- een expliciete lacune die in dit onderzoek wordt onderzocht.

@@ -5,46 +5,66 @@
 \chapter{\IfLanguageName{dutch}{Inleiding}{Introduction}}%
 \label{ch:inleiding}
 
-De inleiding moet de lezer net genoeg informatie verschaffen om het onderwerp te begrijpen en in te zien waarom de onderzoeksvraag de moeite waard is om te onderzoeken. In de inleiding ga je literatuurverwijzingen beperken, zodat de tekst vlot leesbaar blijft. Je kan de inleiding verder onderverdelen in secties als dit de tekst verduidelijkt. Zaken die aan bod kunnen komen in de inleiding~\autocite{Pollefliet2011}:
+Be-Mobile NV is een Belgisch bedrijf dat real-time verkeersdata verwerkt en distribueert aan navigatieplatformen zoals Flitsmeister en TomTom. Voor de communicatie tussen interne diensten en externe partners maakt Be-Mobile gebruik van een API gateway. In het kader van een platformmigratie werd gekozen voor APISIX~\autocite{APISIX2024}, een open-source API gateway gebouwd op NGINX en Lua, met een actieve open-source gemeenschap en ondersteuning voor OpenTelemetry.
 
-\begin{itemize}
-  \item context, achtergrond
-  \item afbakenen van het onderwerp
-  \item verantwoording van het onderwerp, methodologie
-  \item probleemstelling
-  \item onderzoeksdoelstelling
-  \item onderzoeksvraag
-  \item \ldots
-\end{itemize}
+Een API gateway is het centrale toegangspunt voor inkomend API-verkeer. Ze verzorgt routering, authenticatie, rate limiting en andere cross-cutting concerns. Precies omdat alle requests erdoor passeren, is de gateway een ideale positie voor het verzamelen van observability-signalen: wanneer vertraagt een specifieke route, welke consumer veroorzaakt de meeste fouten, hoeveel latentie voegt de gateway zelf toe ten opzichte van de achterliggende service?
 
-\section{\IfLanguageName{dutch}{Probleemstelling}{Problem Statement}}%
+Zonder observability zijn deze vragen enkel te beantwoorden via ad-hoc logging, handmatige analyse of incidentrapportages achteraf. Met een goed uitgewerkte observability-stack worden ze realtime zichtbaar in dashboards en koppelbaar aan concrete oorzaken.
+
+\section{Probleemstelling}%
 \label{sec:probleemstelling}
 
-Uit je probleemstelling moet duidelijk zijn dat je onderzoek een meerwaarde heeft voor een concrete doelgroep. De doelgroep moet goed gedefinieerd en afgelijnd zijn. Doelgroepen als ``bedrijven,'' ``KMO's'', systeembeheerders, enz.~zijn nog te vaag. Als je een lijstje kan maken van de personen/organisaties die een meerwaarde zullen vinden in deze bachelorproef (dit is eigenlijk je steekproefkader), dan is dat een indicatie dat de doelgroep goed gedefinieerd is. Dit kan een enkel bedrijf zijn of zelfs één persoon (je co-promotor/opdrachtgever).
+Het platformteam van Be-Mobile wenste een observability-integratie voor hun nieuwe APISIX-gateway die aansloot bij hun bredere observability-stack, gebaseerd op OpenTelemetry en Thanos. Op het moment van het onderzoek ontbrak elke gestructureerde monitoring van de gateway: er waren geen metrics per consumer of route, geen gedistribueerde traces, en geen gecentraliseerde log-aggregatie.
 
-\section{\IfLanguageName{dutch}{Onderzoeksvraag}{Research question}}%
+De primaire doelgroep van dit onderzoek is het platformteam van Be-Mobile: de engineers die de gateway beheren, configureren en monitoren. Zij hebben concreet nood aan (1) antwoorden op operationele vragen zoals trage routes of afwijkend consumergedrag, en (2) een architectuur die aansluit bij hun bestaande tooling zodat de observability-stack niet opnieuw van nul gebouwd hoeft te worden voor elke nieuwe gateway.
+
+Een secundaire doelgroep zijn platformteams bij andere organisaties die APISIX overwegen of al gebruiken en een vergelijkbare integratiebehoefte hebben.
+
+\section{Onderzoeksvraag}%
 \label{sec:onderzoeksvraag}
 
-Wees zo concreet mogelijk bij het formuleren van je onderzoeksvraag. Een onderzoeksvraag is trouwens iets waar nog niemand op dit moment een antwoord heeft (voor zover je kan nagaan). Het opzoeken van bestaande informatie (bv. ``welke tools bestaan er voor deze toepassing?'') is dus geen onderzoeksvraag. Je kan de onderzoeksvraag verder specifiëren in deelvragen. Bv.~als je onderzoek gaat over performantiemetingen, dan 
+De centrale onderzoeksvraag luidt:
 
-\section{\IfLanguageName{dutch}{Onderzoeksdoelstelling}{Research objective}}%
+\begin{quote}
+\textit{Hoe kan APISIX volledig geïntegreerd worden in een observability-stack op basis van OpenTelemetry en Thanos, zodat metrics, traces en logs per consumer en per route beschikbaar zijn zonder aanpassingen aan de upstream-services?}
+\end{quote}
+
+Deze centrale vraag valt uiteen in vier deelvragen:
+
+\begin{enumerate}
+  \item Werkt de OpenTelemetry-plugin van APISIX in de praktijk voor het exporteren van traces naar een OTEL Collector, en welke informatie bevatten die traces?
+  \item Ondersteunt APISIX het exporteren van metrics via OpenTelemetry, en wat is het alternatief als dat niet het geval is?
+  \item Wat leert de evaluatie van de officiële ``Observe Your API''-tutorial van APISIX voor het eigen architectuurvoorstel, en welke onderdelen zijn herbruikbaar?
+  \item Welke Grafana-dashboards bieden de meeste operationele waarde, en welke metrics en log-queries zijn daarvoor nodig?
+\end{enumerate}
+
+\section{Onderzoeksdoelstelling}%
 \label{sec:onderzoeksdoelstelling}
 
-Wat is het beoogde resultaat van je graduaatsproef? Wat zijn de criteria voor succes? Beschrijf die zo concreet mogelijk. Gaat het bv.\ om een proof-of-concept, een prototype, een verslag met aanbevelingen, een vergelijkende studie, enz.
+Het beoogde resultaat van dit onderzoek is een werkende proof of concept die alle drie observability-pijlers --- metrics, traces en logs --- integreert voor APISIX. Concreet omvat dit:
 
-\section{\IfLanguageName{dutch}{Opzet van deze graduaatsproef}{Structure of this associate thesis}}%
+\begin{itemize}
+  \item Een reproduceerbare Docker Compose-omgeving die de volledige stack bevat.
+  \item Gevalideerde metrics-ingestion via OTEL Collector naar Thanos, met consumer- en route-labels.
+  \item Werkende trace-export van APISIX naar Tempo via de OpenTelemetry-plugin.
+  \item Log-aggregatie van backend-services in Loki, gekoppeld aan trace-ID's voor cross-pijler correlatie.
+  \item Minimaal twee functionele Grafana-dashboards (Gateway Health en Consumer Usage).
+  \item Een evaluatie van de officiële APISIX-tutorial en een architectuuraanbeveling voor productie.
+\end{itemize}
+
+Het onderzoek is geslaagd wanneer alle vier deelvragen beantwoord zijn en de POC-omgeving volledig reproduceerbaar is via de gepubliceerde GitHub-repository.
+
+\section{Opzet van deze graduaatsproef}%
 \label{sec:opzet-graduaatsproef}
-
-% Het is gebruikelijk aan het einde van de inleiding een overzicht te
-% geven van de opbouw van de rest van de tekst. Deze sectie bevat al een aanzet
-% die je kan aanvullen/aanpassen in functie van je eigen tekst.
 
 De rest van deze graduaatsproef is als volgt opgebouwd:
 
-In Hoofdstuk~\ref{ch:stand-van-zaken} wordt een overzicht gegeven van de stand van zaken binnen het onderzoeksdomein, op basis van een literatuurstudie.
+In Hoofdstuk~\ref{ch:stand-van-zaken} wordt de stand van zaken binnen het onderzoeksdomein besproken op basis van een literatuurstudie. Daarin komen API gateways, de drie observability-pijlers, het OpenTelemetry-ecosysteem en de betrokken opslagcomponenten aan bod.
 
-In Hoofdstuk~\ref{ch:methodologie} wordt de methodologie toegelicht en worden de gebruikte onderzoekstechnieken besproken om een antwoord te kunnen formuleren op de onderzoeksvragen.
+In Hoofdstuk~\ref{ch:methodologie} wordt de methodologie toegelicht: hoe het onderzoek gefaseerd werd en welke keuzes daarin gemaakt werden.
 
-% TODO: Vul hier aan voor je eigen hoofstukken, één of twee zinnen per hoofdstuk
+In Hoofdstuk~\ref{ch:poc} wordt de opzet van de proof of concept beschreven: de architectuur, de componenten en de relevante configuratie.
 
-In Hoofdstuk~\ref{ch:conclusie}, tenslotte, wordt de conclusie gegeven en een antwoord geformuleerd op de onderzoeksvragen. Daarbij wordt ook een aanzet gegeven voor toekomstig onderzoek binnen dit domein.
+In Hoofdstuk~\ref{ch:bevindingen} worden de bevindingen per deelvraag besproken: wat werkt, wat niet, en welke configuratievalkuilen werden vastgesteld.
+
+In Hoofdstuk~\ref{ch:conclusie}, tenslotte, wordt de conclusie geformuleerd als antwoord op de onderzoeksvragen, gevolgd door aanbevelingen voor productie-implementatie en suggesties voor verder onderzoek.

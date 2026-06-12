@@ -41,8 +41,39 @@
 }{}
 
 %%---------- Samenvatting -----------------------------------------------------
-% De samenvatting in de hoofdtaal van het document
 
 \chapter*{\IfLanguageName{dutch}{Samenvatting}{Abstract}}
 
-\lipsum[1-4]
+Be-Mobile NV, een Belgisch bedrijf gespecialiseerd in verkeersdata en navigatieoplossingen, schakelde over naar APISIX als nieuwe API gateway. Daarbij rees de vraag hoe volledige observability --- metrics, traces en logs --- geïntegreerd kon worden zonder aanpassingen aan de bestaande backend-services, en welke architectuur daarvoor het meest geschikt was.
+
+Het onderzoek stelde vier concrete vragen: (1) Werkt de OpenTelemetry-plugin van APISIX in de praktijk voor het exporteren van traces naar een OTEL Collector? (2) Ondersteunt APISIX het exporteren van metrics via OpenTelemetry, en wat is het alternatief? (3) Wat leert de evaluatie van de officiële ``Observe Your API''-tutorial voor het eigen architectuurvoorstel? (4) Welke Grafana-dashboards bieden operationeel relevante inzichten voor gateway-beheer?
+
+Om deze vragen te beantwoorden werd een proof of concept (POC) opgezet als Docker Compose-omgeving met elf containers: APISIX als gateway, drie mock-upstream-services geschreven in Go, en een volledige observability-stack bestaande uit een OTEL Collector, Thanos, Tempo, Loki, Grafana Alloy en Grafana. Alle configuratie werd als code beheerd en is reproduceerbaar via één commando.
+
+Uit het onderzoek bleek dat de OpenTelemetry-plugin van APISIX enkel traces ondersteunt via OTLP --- metrics en logs via OTLP zijn niet geïmplementeerd. Voor metrics is de Prometheus-plugin de enige stabiele weg; de OTEL Collector scrapt dit eindpunt en stuurt de data door naar Thanos via \texttt{remote\_write}. Consumer attribution --- het koppelen van elke request aan een specifieke API-consument via Prometheus-labels --- werkt native in APISIX en is een onderscheidende eigenschap ten opzichte van concurrenten zoals Traefik en Envoy. De latentie-uitsplitsing (\texttt{type="apisix"} versus \texttt{type="upstream"}) maakt diagnose van trage requests mogelijk zonder service-interne instrumentatie. Cross-pijler correlatie tussen logs en traces werkt door de automatische injectie van de W3C Traceparent-header door APISIX: backend-services hoeven enkel de \texttt{trace\_id} uit te lezen en mee te loggen.
+
+Er werden zeven niet-gedocumenteerde configuratievalkuilen vastgesteld, waaronder het verplicht globaal instellen van \texttt{plugin\_metadata} voor OpenTelemetry, een case-sensitive allowlist in de consumer-restriction plugin, en afwijkend gedrag in standalone-modus ten opzichte van de etcd-modus.
+
+De aanbeveling is om de OTEL Collector als centrale abstractielaag te gebruiken, zodat de observability-backends vervangen kunnen worden zonder aanpassingen aan de gateway. Zes operationeel bruikbare Grafana-dashboards werden geïmplementeerd. De stack is klaar voor aansluiting op Be-Mobile's bestaande backends via minimale configuratiewijzigingen.
+
+\bigskip
+\noindent\textbf{Sleutelwoorden:} APISIX, API gateway, observability, OpenTelemetry, Prometheus, Thanos, Grafana Tempo, Loki, OTEL Collector, consumer attribution
+
+%%---------- Engelstalige samenvatting ----------------------------------------
+
+\chapter*{Abstract}
+
+Be-Mobile NV, a Belgian company specialising in traffic data and navigation solutions, migrated to APISIX as their new API gateway. This raised the question of how to integrate full observability --- metrics, traces, and logs --- without modifying existing backend services, and which architecture would be most suitable for doing so.
+
+The research addressed four concrete questions: (1) Does the APISIX OpenTelemetry plugin work in practice for exporting traces to an OTEL Collector? (2) Does APISIX support exporting metrics via OpenTelemetry, and if not, what is the alternative? (3) What does evaluation of the official ``Observe Your API'' tutorial contribute to the proposed architecture? (4) Which Grafana dashboards provide operationally relevant insights for gateway management?
+
+To answer these questions, a proof of concept was built as an eleven-container Docker Compose environment: APISIX as the gateway, three mock upstream services written in Go, and a full observability stack consisting of an OTEL Collector, Thanos, Tempo, Loki, Grafana Alloy, and Grafana. All configuration is managed as code and reproducible via a single command.
+
+The research found that the APISIX OpenTelemetry plugin supports traces only via OTLP; metrics and logs over OTLP are not implemented. For metrics, the Prometheus plugin is the only stable path; the OTEL Collector scrapes this endpoint and forwards the data to Thanos via \texttt{remote\_write}. Consumer attribution --- linking each request to a specific API consumer via Prometheus labels --- works natively in APISIX and is a distinguishing feature compared to alternatives such as Traefik and Envoy. Latency decomposition (\texttt{type="apisix"} versus \texttt{type="upstream"}) enables diagnosis of slow requests without service-internal instrumentation. Cross-pillar correlation between logs and traces is achieved through APISIX's automatic injection of the W3C Traceparent header: backend services only need to extract and log the \texttt{trace\_id}.
+
+Seven undocumented configuration pitfalls were identified, including the requirement to set \texttt{plugin\_metadata} globally for OpenTelemetry, a case-sensitive allowlist in the consumer-restriction plugin, and divergent behaviour between standalone and etcd mode.
+
+The recommendation is to use the OTEL Collector as a central abstraction layer, enabling observability backends to be replaced without modifying the gateway. Six operationally useful Grafana dashboards were implemented. The stack is ready for connection to Be-Mobile's existing backends via minimal configuration changes.
+
+\bigskip
+\noindent\textbf{Keywords:} APISIX, API gateway, observability, OpenTelemetry, Prometheus, Thanos, Grafana Tempo, Loki, OTEL Collector, consumer attribution

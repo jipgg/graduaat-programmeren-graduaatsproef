@@ -26,5 +26,45 @@
 %% Maak voor elke fase (behalve het literatuuronderzoek) een NIEUW HOOFDSTUK aan
 %% en geef het een gepaste titel.
 
-\lipsum[21-25]
+Het onderzoek verliep in vier opeenvolgende fasen.
+
+\section{Fase 1: Literatuurstudie}%
+\label{sec:fase-literatuurstudie}
+
+In de eerste fase werd de nodige achtergrondkennis opgebouwd over API gateways, observability-pijlers en het OpenTelemetry-ecosysteem. Concreet werd de APISIX-documentatie grondig doorgenomen, met bijzondere aandacht voor de beschikbare observability-plugins (\texttt{prometheus}, \texttt{opentelemetry}, \texttt{zipkin}, \texttt{http-logger}) en hun configuratiemogelijkheden~\autocite{APISIX2024}. Daarnaast werd de officiële ``Observe Your API''-tutorial geëvalueerd~\autocite{APISIXObserveTutorial2024} en werden de documentaties van de kandidaat-opslagcomponenten (Thanos, Tempo, Loki, Alloy, OTEL Collector) bestudeerd.
+
+Deliverable: een overzicht van de beschikbare plugins en integratiepatronen, en een antwoord op de vraag of APISIX OTLP-metrics ondersteunt.
+
+\section{Fase 2: Architectuurontwerp}%
+\label{sec:fase-architectuurontwerp}
+
+Op basis van de literatuurstudie werd een architectuur uitgetekend voor de proof of concept. De centrale ontwerpkeuze was de rol van de OTEL Collector als centrale hub: zowel het Prometheus-scrape-eindpunt van APISIX als de OTLP-tracesstroom worden via de Collector gerouteerd naar hun respectieve backends. Dit patroon koppelt de gateway los van de specifieke opslagbackends.
+
+De keuze voor de individuele componenten werd als volgt verantwoord:
+
+\begin{itemize}
+  \item \textbf{Thanos} voor metrics: langetermijn-retentie via \texttt{remote\_write}, compatibel met de \texttt{prometheusremotewrite} exporter van de OTEL Collector.
+  \item \textbf{Tempo} voor traces: OTLP-native, lage opslagkost, integreert met Grafana.
+  \item \textbf{Loki} voor logs: efficiënte label-gebaseerde indexering, LogQL-querytaal, native trace-ID-koppeling in Grafana.
+  \item \textbf{Grafana Alloy} voor log-collectie: vervangt het deprecated Promtail, Docker-socket-discovery out-of-the-box.
+  \item \textbf{Mock-upstream-services in Go}: drie eenvoudige HTTP-services die gestructureerde JSON-logs schrijven naar stdout, zodat de log-aggregatiepijpeline getest kan worden zonder afhankelijkheid van echte Be-Mobile-backends.
+\end{itemize}
+
+Deliverable: een architectuurdiagram en een overzicht van de te configureren componenten.
+
+\section{Fase 3: Implementatie van de POC}%
+\label{sec:fase-implementatie}
+
+De derde fase bestond uit het opzetten van de volledige stack als Docker Compose-omgeving. De implementatie verliep iteratief: eerst werd de metrics-pijler werkend gemaakt (APISIX Prometheus-plugin → OTEL Collector → Thanos), daarna de traces-pijler (OpenTelemetry-plugin → OTEL Collector → Tempo), en tot slot de logs-pijler (mock-services stdout → Alloy → Loki).
+
+Per component werden de configuratiebestanden als code beheerd in een Git-repository. Tijdens de implementatie werden configuratievalkuilen geïdentificeerd en gedocumenteerd.
+
+Deliverable: een werkende, reproduceerbare Docker Compose-omgeving met alle configuratiebestanden in versiebeheer.
+
+\section{Fase 4: Validatie en dashboards}%
+\label{sec:fase-validatie}
+
+In de laatste fase werden de Grafana-dashboards ontworpen en geïmplementeerd op basis van de beschikbare metrics, log-queries en trace-links. De stack werd gevalideerd door testverzoeken te sturen via een \texttt{make seed}-commando dat 60 requests verdeelt over alle geconfigureerde consumers, en door de resulterende data in alle drie pijlers te controleren.
+
+Deliverable: zes functionele Grafana-dashboards, een validatierapport van de POC, en een architectuuraanbeveling voor productie.
 

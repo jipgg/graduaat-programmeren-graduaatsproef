@@ -5,14 +5,32 @@
 \chapter{Conclusie}%
 \label{ch:conclusie}
 
-% TODO: Trek een duidelijke conclusie, in de vorm van een antwoord op de
-% onderzoeksvra(a)g(en). Wat was jouw bijdrage aan het onderzoeksdomein en
-% hoe biedt dit meerwaarde aan het vakgebied/doelgroep? 
-% Reflecteer kritisch over het resultaat. In Engelse teksten wordt deze sectie
-% ``Discussion'' genoemd. Had je deze uitkomst verwacht? Zijn er zaken die nog
-% niet duidelijk zijn?
-% Heeft het onderzoek geleid tot nieuwe vragen die uitnodigen tot verder 
-%onderzoek?
+Dit onderzoek had als centrale vraag hoe APISIX volledig geïntegreerd kan worden in een observability-stack op basis van OpenTelemetry en Thanos, zodat metrics, traces en logs per consumer en per route beschikbaar zijn zonder aanpassingen aan upstream-services. Op basis van de proof of concept kan deze vraag beantwoord worden.
 
-\lipsum[76-80]
+\section{Antwoorden op de deelvragen}
+
+\textbf{Deelvraag 1 --- Tracing:} De \texttt{opentelemetry} plugin van APISIX werkt correct voor trace-export naar een OTEL Collector. Traces bevatten consumer- en route-attributen en propageren via W3C Traceparent naar upstream-services, wat cross-pijler correlatie mogelijk maakt zonder SDK-instrumentatie in de backends.
+
+\textbf{Deelvraag 2 --- Metrics en OTLP:} APISIX ondersteunt geen OTLP-metrics. De \texttt{prometheus} plugin gecombineerd met de OTEL Collector is het correcte alternatief. De drievoudige latentie-uitsplitsing (\texttt{type="apisix"}, \texttt{type="upstream"}, \texttt{type="request"}) en consumer attribution via Prometheus-labels zijn waardevolle kenmerken die niet beschikbaar zijn in alternatieven zoals Traefik of Envoy.
+
+\textbf{Deelvraag 3 --- Tutorial-evaluatie:} De officiële ``Observe Your API''-tutorial is bruikbaar als referentie voor de metrics-pijler maar gebruikt legacy-technologie voor traces (Zipkin) en ontbeert langetermijn-opslag. De OTEL Collector als centraal routeringspunt en Thanos als metriekopslag bieden meer productiewaarde.
+
+\textbf{Deelvraag 4 --- Dashboards:} Zes functionele dashboards werden geïmplementeerd. De combinatie van Consumer Usage (per-consumer metrics) en Service Logs (logs met trace-ID-links) biedt de meeste operationele meerwaarde voor het Be-Mobile platformteam.
+
+\section{Meerwaarde en aanbevelingen}
+
+De voornaamste meerwaarde van dit onderzoek voor het Be-Mobile platformteam is tweeledig. Ten eerste documenteert het de enige correcte integratiepaden voor alle drie observability-pijlers in APISIX, inclusief de niet-gedocumenteerde beperkingen (geen OTLP-metrics) en zeven concrete configuratievalkuilen. Ten tweede levert het een reproduceerbare, volledig geconfigureerde omgeving op die direct aangepast kan worden voor productiegebruik.
+
+De aanbevelingen voor productie-implementatie zijn:
+
+\begin{enumerate}
+  \item \textbf{OTEL Collector als abstractielaag behouden:} de Thanos-, Tempo- en Loki-instanties in de POC kunnen vervangen worden door de equivalente Be-Mobile-backends door enkel de exporter-configuratie in de OTEL Collector aan te passen.
+  \item \textbf{Observability-plugins naar \texttt{global\_rules} verplaatsen:} door de \texttt{prometheus} en \texttt{opentelemetry} plugins als global rule in te stellen, worden nieuwe routes automatisch gedekt zonder expliciete plugin-configuratie per route.
+  \item \textbf{Tail-sampling configureren voor Tempo:} de huidige \texttt{always\_on} sampling is niet schaalbaar. De OTEL Collector ondersteunt tail-sampling via de \texttt{tail\_sampling} processor; een samplepercentage of een op foutcodes gebaseerde samplingpolitiek wordt aanbevolen.
+  \item \textbf{Security hardening:} API-sleutels via headers in plaats van query-parameters; authenticatie op de metrics- en OTLP-eindpunten; \texttt{prefer\_name: true} in de Prometheus-plugin om ID-cardinaliteit te beperken.
+\end{enumerate}
+
+\section{Verdere vragen}
+
+Dit onderzoek opent enkele aanvullende vragen. Ten eerste: wat is de meetbare overhead van de APISIX OpenTelemetry-plugin op de gateway-latentie onder hoge load, en rechtvaardigt die overhead \texttt{always\_on} sampling? Ten tweede: welke aanpak is optimaal voor het instrumenteren van de backend-services zelf --- een OTel SDK toevoegen, of via APISIX-plugins zoals \texttt{fault-injection} en \texttt{response-rewrite} extra span-attributen simuleren? Ten derde: hoe verhoudt de prestatie van Thanos Receive op single-node zich tot een managed metrics-backend bij hogere verkeersvolumes?
 

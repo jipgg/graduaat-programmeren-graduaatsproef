@@ -1,0 +1,62 @@
+apisix:
+  node_listen: 9080
+  enable_ipv6: false
+
+# Standalone deployment — reads routes from apisix.yaml, no etcd needed
+deployment:
+  role: data_plane
+  role_data_plane:
+    config_provider: yaml
+
+plugin_attr:
+  prometheus:
+    export_addr:
+      ip: "0.0.0.0"
+      port: 9091
+    export_uri: /apisix/prometheus/metrics
+    metric_prefix: apisix_
+    default_buckets:
+      - 1
+      - 5
+      - 10
+      - 50
+      - 100
+      - 200
+      - 500
+      - 1000
+      - 2000
+      - 5000
+      - 10000
+
+  opentelemetry:
+    resource:
+      service.name: apisix
+    collector:
+      address: "otel-collector:4318"
+      request_timeout: 3
+    batch_span_processor:
+      max_queue_size: 1024
+      batch_timeout: 2
+      max_export_batch_size: 16
+
+plugins:
+  - real-ip
+  - request-id
+  - cors
+  - ip-restriction
+  - basic-auth
+  - key-auth
+  - jwt-auth
+  - consumer-restriction
+  - forward-auth
+  - proxy-rewrite
+  - response-rewrite
+  - redirect
+  - api-breaker
+  - limit-conn
+  - limit-count
+  - limit-req
+  - http-logger
+  - prometheus
+  - opentelemetry
+  - node-status

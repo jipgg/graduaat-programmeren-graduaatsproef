@@ -1,0 +1,102 @@
+%===============================================================================
+% LaTeX sjabloon voor de graduaatsproef Programmeren aan HOGENT
+%===============================================================================
+
+\documentclass[dutch,dit,thesis]{hogentreport}
+
+\usepackage{lipsum}
+
+\graphicspath{{../graphics/}}
+
+\usepackage[chapter]{minted}
+\usemintedstyle{solarized-light}
+
+\setminted{%
+    autogobble,
+    frame=lines,
+    breaklines,
+    linenos,
+    tabsize=4
+}
+
+\renewcommand\listoflistingscaption{%
+    \IfLanguageName{dutch}{Lijst van codefragmenten}{List of listings}
+}
+\renewcommand\listingscaption{%
+    \IfLanguageName{dutch}{Codefragment}{Listing}
+}
+\renewcommand*\listoflistings{%
+    \cleardoublepage\phantomsection\addcontentsline{toc}{chapter}{\listoflistingscaption}%
+    \listof{listing}{\listoflistingscaption}%
+}
+
+%%---------- Document metadata -------------------------------------------------
+\author{Jippe Gijsens}
+\supervisor{Dhr. D. Vandycke}
+\cosupervisor{Dhr. G. Delanghe (Be-Mobile)}
+\title[Observability-integratie voor APISIX]%
+    {Observability-integratie voor een API Gateway: metrics, traces en logs met APISIX en OpenTelemetry}
+\academicyear{\advance\year by -1 \the\year--\advance\year by 1 \the\year}
+\examperiod{1}
+\degreesought{\IfLanguageName{dutch}{Graduaat in het Programmeren}{Associate of applied computer science}}
+\partialthesis{false}
+\institution{Be-Mobile NV}
+
+\hyphenation{back-slash open-te-le-me-try ob-ser-va-bi-li-ty}
+
+\addbibresource{gradproef.bib}
+\addbibresource{../voorstel/voorstel.bib}
+\defbibheading{bibempty}{}
+
+\renewcommand{\cleardoublepage}{\clearpage}
+\renewcommand{\arraystretch}{1.2}
+
+\begin{document}
+
+%---------- Front matter -------------------------------------------------------
+
+\frontmatter
+
+\hypersetup{pageanchor=false}
+\maketitle
+\hypersetup{pageanchor=true}
+
+\input{voorwoord}
+\input{samenvatting}
+
+%---------- Inhoud, lijst figuren, ... -----------------------------------------
+
+\tableofcontents
+\listoffigures
+\listoftables
+\listoflistings
+
+%---------- Kern ---------------------------------------------------------------
+
+\mainmatter{}
+
+\input{inleiding}
+\input{standvanzaken}
+\input{methodologie}
+\input{poc}
+\input{bevindingen}
+\input{conclusie}
+
+%---------- Bijlagen -----------------------------------------------------------
+
+\appendix
+
+\chapter{Onderzoeksvoorstel}
+
+Het onderwerp van deze graduaatsproef is gebaseerd op een onderzoeksvoorstel dat vooraf werd beoordeeld door de promotor. Dat voorstel is opgenomen in deze bijlage.
+
+\input{../voorstel/voorstel-inhoud}
+
+%%---------- Backmatter, referentielijst ---------------------------------------
+
+\backmatter{}
+
+\setlength\bibitemsep{2pt}
+\printbibliography[heading=bibintoc]
+
+\end{document}

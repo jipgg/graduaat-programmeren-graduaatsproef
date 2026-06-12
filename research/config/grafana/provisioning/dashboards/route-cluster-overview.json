@@ -1,0 +1,353 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "datasource", "uid": "grafana" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Per-route cluster view — mirrors CVP production API Gateway Cluster overview pattern.",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "refresh": "30s",
+  "schemaVersion": 42,
+  "tags": ["apisix", "gateway", "routes"],
+  "title": "APISIX — Route Cluster Overview",
+  "uid": "apisix-route-cluster",
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "interval",
+        "label": "Interval",
+        "type": "interval",
+        "query": "1s,5s,30s,1m,5m,10m,30m,1h",
+        "current": { "text": "5m", "value": "5m" },
+        "options": [],
+        "auto": false,
+        "refresh": 2,
+        "hide": 0
+      },
+      {
+        "name": "route",
+        "label": "Route",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "thanos" },
+        "query": "label_values(apisix_http_status_total, route)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "sort": 1,
+        "hide": 0
+      },
+      {
+        "name": "consumer",
+        "label": "Consumer",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "thanos" },
+        "query": "label_values(apisix_http_status_total, consumer)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "sort": 1,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "General",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Overall requests over $interval",
+      "description": "Total request rate across all routes and consumers.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum(rate(apisix_http_status_total[$interval]))",
+          "legendFormat": "Total requests",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Overall latency over $interval",
+      "description": "P50/P95/P99 end-to-end latency across all routes.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(apisix_http_latency_bucket{type=\"request\"}[$interval])))",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{type=\"request\"}[$interval])))",
+          "legendFormat": "P95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(apisix_http_latency_bucket{type=\"request\"}[$interval])))",
+          "legendFormat": "P99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Error rates over $interval",
+      "description": "4xx client errors and 5xx server errors per second.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum(rate(apisix_http_status_total{code=~\"4..\"}[$interval]))",
+          "legendFormat": "4xx",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "sum(rate(apisix_http_status_total{code=~\"5..\"}[$interval]))",
+          "legendFormat": "5xx",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "4xx" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "5xx" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Gateway vs upstream latency P95",
+      "description": "Separates APISIX plugin overhead from backend response time.",
+      "datasource": { "type": "prometheus", "uid": "thanos" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{type=\"apisix\"}[$interval])))",
+          "legendFormat": "P95 gateway only",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{type=\"upstream\"}[$interval])))",
+          "legendFormat": "P95 upstream only",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+      }
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "$route",
+      "collapsed": true,
+      "repeat": "route",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "panels": [
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Requests per backend over $interval",
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "gridPos": { "h": 10, "w": 12, "x": 0, "y": 18 },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "thanos" },
+              "expr": "sum by (consumer, code) (rate(apisix_http_status_total{route=~\"$route\"}[$interval]))",
+              "legendFormat": "{{consumer}} {{code}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": { "mode": "palette-classic" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "none" },
+            "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Latency per backend over $interval",
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "gridPos": { "h": 10, "w": 12, "x": 12, "y": 18 },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "thanos" },
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(apisix_http_latency_bucket{type=\"request\", route=~\"$route\"}[$interval])))",
+              "legendFormat": "P50",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "thanos" },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{type=\"request\", route=~\"$route\"}[$interval])))",
+              "legendFormat": "P95",
+              "refId": "B"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "thanos" },
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(apisix_http_latency_bucket{type=\"request\", route=~\"$route\"}[$interval])))",
+              "legendFormat": "P99",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": { "mode": "palette-classic" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "none" },
+            "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+          }
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Error rate per consumer over $interval",
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "gridPos": { "h": 10, "w": 12, "x": 0, "y": 28 },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "thanos" },
+              "expr": "sum by (consumer, code) (rate(apisix_http_status_total{route=~\"$route\", code=~\"[45]..\"}[$interval]))",
+              "legendFormat": "{{consumer}} {{code}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": { "mode": "palette-classic" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "none" },
+            "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Bandwidth over $interval",
+          "datasource": { "type": "prometheus", "uid": "thanos" },
+          "gridPos": { "h": 10, "w": 12, "x": 12, "y": 28 },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "thanos" },
+              "expr": "sum by (route) (rate(apisix_bandwidth_total{type=\"ingress\", route=~\"$route\"}[$interval]))",
+              "legendFormat": "ingress",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "thanos" },
+              "expr": "sum by (route) (rate(apisix_bandwidth_total{type=\"egress\", route=~\"$route\"}[$interval]))",
+              "legendFormat": "egress",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "binBps",
+              "color": { "mode": "palette-classic" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "none" },
+            "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }
+          }
+        }
+      ]
+    }
+  ]
+}

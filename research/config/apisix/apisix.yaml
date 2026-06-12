@@ -1,0 +1,263 @@
+# APISIX standalone route config — mirrors CVP staging plugin patterns.
+# Auth header: be-mobile-api-key  (matching production convention)
+# regex_uri strips the gateway path prefix before forwarding to upstream.
+# X-Consumer-Username is injected by proxy-rewrite so backend services can
+# log/trace which consumer made each request.
+
+# ── Plugin metadata (global, equivalent to PUT /apisix/admin/plugin_metadata) ──
+plugin_metadata:
+  - id: opentelemetry
+    trace_id_source: x-request-id
+    resource:
+      service.name: apisix
+      service.version: "3.15"
+    collector:
+      address: "otel-collector:4318"
+      request_timeout: 3
+    batch_span_processor:
+      max_queue_size: 1024
+      batch_timeout: 2
+      max_export_batch_size: 16
+
+routes:
+
+  # ── Traffic Events API ──────────────────────────────────────────────────────
+  # Mirrors: traffic-events-v2-api-nl-generic-beta.json
+  - id: "traffic-events-nl-generic"
+    name: traffic-events-nl-generic
+    uri: /traffic-events/v2/nl-generic*
+    methods: [GET, POST, OPTIONS]
+    upstream_id: "traffic-events-service"
+    plugins:
+      key-auth:
+        header: be-mobile-api-key
+        query: be-mobile-api-key
+      consumer-restriction:
+        whitelist:
+          - Flitsmeister_Client
+          - TomTom_Integration
+          - Internal_Monitoring
+          - TestClient_Generic
+      prometheus:
+        prefer_name: true
+      opentelemetry:
+        sampler:
+          name: always_on
+      proxy-rewrite:
+        regex_uri:
+          - "^/traffic-events/v2/nl-generic/(.*)$"
+          - "/$1"
+        headers:
+          set:
+            X-Consumer-Username: "$consumer_name"
+            X-Correlation-ID: "$request_id"
+          remove:
+            - be-mobile-api-key
+      request-id:
+        enable_req_id_in_resp: true
+        header_name: X-Correlation-ID
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,POST,OPTIONS"
+        allow_headers: "be-mobile-api-key,content-type,accept-language"
+        allow_credential: false
+    status: 1
+
+  # Events root (no trailing path segment — separate rule for exact /events match)
+  - id: "traffic-events-nl-generic-root"
+    name: traffic-events-nl-generic-root
+    uri: /traffic-events/v2/nl-generic
+    methods: [GET, OPTIONS]
+    upstream_id: "traffic-events-service"
+    plugins:
+      key-auth:
+        header: be-mobile-api-key
+        query: be-mobile-api-key
+      consumer-restriction:
+        whitelist:
+          - Flitsmeister_Client
+          - TomTom_Integration
+          - Internal_Monitoring
+          - TestClient_Generic
+      prometheus:
+        prefer_name: true
+      opentelemetry:
+        sampler:
+          name: always_on
+      proxy-rewrite:
+        uri: /events
+        headers:
+          set:
+            X-Consumer-Username: "$consumer_name"
+          remove:
+            - be-mobile-api-key
+      request-id:
+        enable_req_id_in_resp: true
+        header_name: X-Correlation-ID
+    status: 1
+
+  # ── Route Guidance API ──────────────────────────────────────────────────────
+  # Mirrors: route-guidance-public-api-generic-beta.json
+  - id: "route-guidance-generic"
+    name: route-guidance-generic
+    uri: /guidance/v2/generic*
+    methods: [GET, POST, OPTIONS]
+    upstream_id: "route-guidance-service"
+    plugins:
+      key-auth:
+        header: be-mobile-api-key
+        query: be-mobile-api-key
+      consumer-restriction:
+        whitelist:
+          - Flitsmeister_Client
+          - Internal_Monitoring
+          - TestClient_Generic
+      prometheus:
+        prefer_name: true
+      opentelemetry:
+        sampler:
+          name: always_on
+      proxy-rewrite:
+        regex_uri:
+          - "^/guidance/v2/generic/(.*)$"
+          - "/$1"
+        headers:
+          set:
+            X-Consumer-Username: "$consumer_name"
+            X-Correlation-ID: "$request_id"
+          remove:
+            - be-mobile-api-key
+            - x-api-key
+      request-id:
+        enable_req_id_in_resp: true
+        header_name: X-Correlation-ID
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,POST,OPTIONS"
+        allow_headers: "be-mobile-api-key,content-type"
+        allow_credential: false
+    status: 1
+
+  # Route guidance root
+  - id: "route-guidance-generic-root"
+    name: route-guidance-generic-root
+    uri: /guidance/v2/generic
+    methods: [POST, OPTIONS]
+    upstream_id: "route-guidance-service"
+    plugins:
+      key-auth:
+        header: be-mobile-api-key
+        query: be-mobile-api-key
+      consumer-restriction:
+        whitelist:
+          - Flitsmeister_Client
+          - Internal_Monitoring
+          - TestClient_Generic
+      prometheus:
+        prefer_name: true
+      opentelemetry:
+        sampler:
+          name: always_on
+      proxy-rewrite:
+        uri: /route
+        headers:
+          set:
+            X-Consumer-Username: "$consumer_name"
+          remove:
+            - be-mobile-api-key
+      request-id:
+        enable_req_id_in_resp: true
+        header_name: X-Correlation-ID
+    status: 1
+
+  # ── Echo service (no auth — for ad-hoc request inspection) ────────────────
+  - id: "echo-proxy"
+    name: echo-proxy
+    uri: /echo*
+    upstream_id: "echo-service"
+    plugins:
+      prometheus:
+        prefer_name: true
+      opentelemetry:
+        sampler:
+          name: always_on
+      proxy-rewrite:
+        regex_uri:
+          - "^/echo/(.*)$"
+          - "/$1"
+    status: 1
+
+# ── Consumers ──────────────────────────────────────────────────────────────────
+consumers:
+  - username: Flitsmeister_Client
+    plugins:
+      key-auth:
+        key: flit-key-abc123
+
+  - username: TomTom_Integration
+    plugins:
+      key-auth:
+        key: tomtom-key-def456
+
+  - username: Internal_Monitoring
+    plugins:
+      key-auth:
+        key: monitor-key-ghi789
+
+  - username: TestClient_Generic
+    plugins:
+      key-auth:
+        key: test-key-xyz000
+
+# ── Upstreams ──────────────────────────────────────────────────────────────────
+# Note: `status` is not a valid field in standalone YAML upstreams (only routes).
+upstreams:
+  - id: "traffic-events-service"
+    nodes:
+      "traffic-events-service:8080": 1
+    type: roundrobin
+    scheme: http
+    checks:
+      active:
+        type: http
+        http_path: /healthz
+        interval: 10
+        timeout: 2
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 3
+
+  - id: "route-guidance-service"
+    nodes:
+      "route-guidance-service:8080": 1
+    type: roundrobin
+    scheme: http
+    checks:
+      active:
+        type: http
+        http_path: /healthz
+        interval: 10
+        timeout: 2
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 3
+
+  - id: "echo-service"
+    nodes:
+      "echo-service:8080": 1
+    type: roundrobin
+    scheme: http
+    checks:
+      active:
+        type: http
+        http_path: /healthz
+        interval: 10
+        timeout: 2
+        healthy:
+          successes: 2
+        unhealthy:
+          http_failures: 3
+
+#END

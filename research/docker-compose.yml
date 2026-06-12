@@ -1,0 +1,164 @@
+name: apisix-dashboards
+
+networks:
+  obs:
+    driver: bridge
+
+volumes:
+  thanos_data:
+  tempo_data:
+  grafana_data:
+  loki_data:
+
+services:
+
+  # ── APISIX (standalone – no etcd required) ───────────────────────────────────
+  apisix:
+    image: apache/apisix:3.15.0-debian
+    ports:
+      - "9080:9080"
+      - "9091:9091"   # Prometheus metrics (scraped by otel-collector)
+    volumes:
+      - ./config/apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ./config/apisix/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # ── Mock upstream services ───────────────────────────────────────────────────
+  # Traffic Events API — GET /events, GET /events/{id}, POST /events/query
+  # Reached via APISIX at /traffic-events/v2/nl-generic/*  (be-mobile-api-key auth)
+  traffic-events-service:
+    build: ./mock-apis/traffic-events-service
+    environment:
+      SERVICE_NAME: traffic-events-service
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # Route Guidance API — POST /route, GET /route/{id}, GET /route/{id}/alternatives
+  # Reached via APISIX at /guidance/v2/generic/*  (be-mobile-api-key auth)
+  route-guidance-service:
+    build: ./mock-apis/route-guidance-service
+    environment:
+      SERVICE_NAME: route-guidance-service
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # Echo service — open, no auth, for ad-hoc request inspection
+  echo-service:
+    build: ./mock-apis/echo-service
+    networks:
+      - obs
+
+  # ── Loki ─────────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:3.4.1
+    user: root
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./config/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/var/loki
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # ── Grafana Alloy (log collection) ───────────────────────────────────────────
+  alloy:
+    image: grafana/alloy:v1.16.1
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # ── OpenTelemetry Collector ───────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.121.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./config/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"   # OTLP/HTTP (traces from APISIX)
+    depends_on:
+      - apisix
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # ── Thanos Receive ────────────────────────────────────────────────────────────
+  thanos-receive:
+    image: quay.io/thanos/thanos:v0.41.0
+    user: root
+    command:
+      - receive
+      - --tsdb.path=/var/thanos/receive
+      - --tsdb.retention=7d
+      - --grpc-address=0.0.0.0:10907
+      - --http-address=0.0.0.0:10909
+      - --remote-write.address=0.0.0.0:19291
+      - --label=receive_replica="0"
+      - --log.level=warn
+    volumes:
+      - thanos_data:/var/thanos/receive
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # ── Thanos Query ──────────────────────────────────────────────────────────────
+  thanos-query:
+    image: quay.io/thanos/thanos:v0.41.0
+    command:
+      - query
+      - --http-address=0.0.0.0:10902
+      - --grpc-address=0.0.0.0:10901
+      - --endpoint=thanos-receive:10907
+      - --query.replica-label=receive_replica
+      - --log.level=warn
+    depends_on:
+      - thanos-receive
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # ── Grafana Tempo ─────────────────────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.10.5
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./config/tempo/config.yaml:/etc/tempo/config.yaml:ro
+      - tempo_data:/var/tempo
+    networks:
+      - obs
+    restart: unless-stopped
+
+  # ── Grafana ───────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.5.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - thanos-query
+      - tempo
+      - loki
+    networks:
+      - obs
+    restart: unless-stopped
